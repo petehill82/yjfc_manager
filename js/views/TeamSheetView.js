@@ -74,7 +74,7 @@ export default {
       </header>
 
       <h4>Squad</h4>
-      <ul>
+      <ul class="player-list">
         <li v-for="a in appearances" :key="a.player_id">{{ playerName(a) }}</li>
       </ul>
       <p v-if="!appearances.length">No squad selected yet.</p>

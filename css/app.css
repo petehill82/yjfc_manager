@@ -125,6 +125,13 @@ body {
   text-align: center;
 }
 .live-player-btn.active { background: var(--club-orange); color: #fff; border-color: var(--club-orange-dark); }
+
+/* Team sheet squad lists - round bullets instead of Pico's default square
+   (Pico sets list-style-type on the <li> itself, which beats list-style-type
+   set on the parent <ul> since inheritance always loses to a direct rule -
+   so this has to target the <li> too). */
+.player-list { padding-left: 1.3rem; margin: 0.4rem 0 0; }
+.player-list li { list-style-type: disc; padding-left: 0.15rem; }
 .live-player-btn.active .num { background: #fff; color: var(--club-orange-dark); }
 
 /* ---------- Print (team sheet) ---------- */

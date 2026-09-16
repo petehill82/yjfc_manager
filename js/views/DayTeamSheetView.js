@@ -191,7 +191,7 @@ export default {
               <span v-if="f.kickoff">{{ f.kickoff }} &middot; </span>{{ f.venue }}
             </p>
             <p v-if="(f.coaches || []).length" style="font-size:0.85rem; opacity:0.75;">Coaches: {{ f.coaches.join(', ') }}</p>
-            <ul>
+            <ul class="player-list">
               <li v-for="p in (squadByFixture[f.id] || [])" :key="p.id">{{ p.name }}</li>
             </ul>
             <p v-if="!(squadByFixture[f.id] || []).length" style="font-size:0.85rem; opacity:0.7;">No squad selected yet.</p>
