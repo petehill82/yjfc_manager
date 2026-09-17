@@ -20,7 +20,7 @@ export default {
     players: { type: Array, required: true },       // full active roster
     rows: { type: Object, required: true },          // player_id -> appearance row (reactive)
     availability: { type: Object, default: () => ({}) }, // player_id -> 'available'|'unavailable'|'unknown'
-    otherMatches: { type: Object, default: () => ({}) }, // player_id -> [other match labels today]
+    otherMatches: { type: Object, default: () => ({}) }, // player_id -> [{ label, kickoff, conflict }] for other fixtures today
   },
   emits: ["change"],
   data() {
@@ -54,6 +54,13 @@ export default {
       if (s === "unavailable") return { text: "Unavailable", cls: "warn" };
       return null;
     },
+    // Other fixtures today with the same kick off time as this one - a real
+    // clash, since a player can't actually be in two places at once. Shown
+    // regardless of whether they're ticked here, so it warns before you pick
+    // them too, not just after.
+    conflictsFor(p) {
+      return (this.otherMatches[p.id] || []).filter((m) => m.conflict);
+    },
   },
   template: `
     <div>
@@ -64,8 +71,11 @@ export default {
           <span class="num">{{ p.squad_number ?? '-' }}</span>
           <span :class="{ 'picked-elsewhere': (otherMatches[p.id] || []).length }" style="white-space:nowrap;">{{ playerDisplayName(p) }}</span>
           <span v-if="availTag(p)" :class="['tag', availTag(p).cls]">{{ availTag(p).text }}</span>
-          <span v-if="row(p).selected && (otherMatches[p.id] || []).length" class="tag" style="flex-basis:100%; margin-left:1.85rem;">
-            Also playing: {{ otherMatches[p.id].join(', ') }}
+          <span v-if="conflictsFor(p).length" class="tag warn" style="flex-basis:100%; margin-left:1.85rem;">
+            &#9888; Clashes with {{ conflictsFor(p).map(m => m.label + ' (' + m.kickoff + ')').join(', ') }}
+          </span>
+          <span v-else-if="row(p).selected && (otherMatches[p.id] || []).length" class="tag" style="flex-basis:100%; margin-left:1.85rem;">
+            Also playing: {{ otherMatches[p.id].map(m => m.label).join(', ') }}
           </span>
         </label>
       </div>

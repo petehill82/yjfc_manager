@@ -39,7 +39,9 @@ export default {
     // Players selected on another of today's fixtures - shown as a helpful
     // "also playing for X" note (and a lighter name) on every fixture's list,
     // not just the ones they're ticked on, so a coach can see at a glance
-    // who's already spoken for elsewhere. Not a warning - playing twice is allowed.
+    // who's already spoken for elsewhere. Playing twice is allowed - but not
+    // at the same kick off time, so each entry also flags a real clash
+    // (both fixtures have a kick off time set, and it's the same one).
     const otherMatchesByFixture = computed(() => {
       const label = (f) => f.team_name || f.opponent;
       const matchesByPlayer = {};
@@ -54,7 +56,13 @@ export default {
         const others = {};
         for (const p of players.value) {
           const rest = (matchesByPlayer[p.id] || []).filter((other) => other.id !== f.id);
-          if (rest.length) others[p.id] = rest.map(label);
+          if (rest.length) {
+            others[p.id] = rest.map((other) => ({
+              label: label(other),
+              kickoff: other.kickoff,
+              conflict: !!(f.kickoff && other.kickoff && f.kickoff === other.kickoff),
+            }));
+          }
         }
         result[f.id] = others;
       }
@@ -107,6 +115,7 @@ export default {
       <div class="matchday-columns" style="margin-top:1rem;">
         <article v-for="f in fixtures" :key="f.id">
           <header><strong>{{ f.team_name || 'Team' }}</strong> vs {{ f.opponent }} <span class="tag">{{ f.home_away }}</span></header>
+          <p v-if="f.kickoff" style="font-size:0.85rem; opacity:0.75; margin:0.25rem 0;">Kick off: {{ f.kickoff }}</p>
           <p v-if="(f.coaches || []).length" style="font-size:0.85rem; opacity:0.75; margin:0.25rem 0;">Coaches: {{ f.coaches.join(', ') }}</p>
           <PlayerPicker
             :players="players"
