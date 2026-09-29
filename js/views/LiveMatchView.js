@@ -255,7 +255,7 @@ export default {
         .map((pid) => playerName(pid) + (rows[pid].assists > 1 ? ` x${rows[pid].assists}` : ""));
       if (assistLines.length) lines.push(`🅰️ ${assistLines.join(", ")}`);
       const potmPid = order.value.find((pid) => rows[pid].potm);
-      if (potmPid) lines.push(`⭐ POTM: ${playerName(potmPid)}`);
+      if (potmPid) lines.push(`⭐ ${playerName(potmPid)}`);
       return lines.join("\n");
     }
 

@@ -1,12 +1,13 @@
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted, nextTick } from "vue";
 import { listFixtures, createFixture, createFixturesBulk, updateFixture, deleteFixture, setFixtureCoaches } from "../api/fixtures.js";
 import { listCoaches } from "../api/profiles.js";
 import { store, isAdmin, currentSeason } from "../store.js";
 import { parseDelimited, normalizeDate, normalizeTime, normalizeHomeAway } from "../lib/csv.js";
 import { coachDisplayName } from "../lib/format.js";
 import { useLoader } from "../lib/useLoader.js";
+import { strengthLabel } from "../lib/teamStrength.js";
 
-const BLANK = { match_date: "", kickoff: "", team_name: "", opponent: "", home_away: "home", venue: "", competition: "", format: "", status: "scheduled", our_score: null, their_score: null, coach_ids: [] };
+const BLANK = { match_date: "", kickoff: "", team_name: "", opponent: "", home_away: "home", venue: "", competition: "", format: "", status: "scheduled", our_score: null, their_score: null, coach_ids: [], team_strength: "" };
 
 export default {
   name: "FixturesView",
@@ -14,6 +15,7 @@ export default {
     const fixtures = ref([]);
     const allCoaches = ref([]);
     const showForm = ref(false);
+    const formEl = ref(null); // the top-of-page add/duplicate form, scrolled into view below
     const draft = ref({ ...BLANK });
     const editingId = ref(null);
     const error = ref("");
@@ -46,17 +48,21 @@ export default {
 
     // Editing happens inline on the fixture's own card (see template), not in
     // the top-of-page form - so there's nothing to scroll back up for.
-    function startEdit(f) { draft.value = { ...f, coach_ids: [...(f.coach_ids || [])] }; editingId.value = f.id; showForm.value = false; showImport.value = false; }
+    function startEdit(f) { draft.value = { ...f, coach_ids: [...(f.coach_ids || [])], team_strength: f.team_strength || "" }; editingId.value = f.id; showForm.value = false; showImport.value = false; }
     function cancelEdit() { editingId.value = null; error.value = ""; }
 
     // Clone a fixture as another of our teams playing the same opponent/date -
     // the quick path for "this one fixture is actually N matches for us".
+    // Clicked from a fixture card that's often well down the page, but the
+    // form itself lives at the top - scroll to it, or opening it looks like
+    // nothing happened.
     function duplicateAsNewTeam(f) {
       const { id, created_at, coaches, coach_ids, ...rest } = f;
-      draft.value = { ...rest, coach_ids: [...(coach_ids || [])], team_name: "", our_score: null, their_score: null, status: "scheduled" };
+      draft.value = { ...rest, coach_ids: [...(coach_ids || [])], team_name: "", our_score: null, their_score: null, status: "scheduled", team_strength: rest.team_strength || "" };
       editingId.value = null;
       showForm.value = true;
       showImport.value = false;
+      nextTick(() => formEl.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
 
     async function save() {
@@ -69,6 +75,7 @@ export default {
           kickoff: draft.value.kickoff === "" ? null : draft.value.kickoff,
           our_score: draft.value.our_score === "" ? null : draft.value.our_score,
           their_score: draft.value.their_score === "" ? null : draft.value.their_score,
+          team_strength: draft.value.team_strength === "" ? null : draft.value.team_strength,
         };
         const saved = editingId.value ? await updateFixture(editingId.value, payload) : await createFixture(payload);
         await setFixtureCoaches(saved.id, coach_ids || []);
@@ -236,7 +243,7 @@ export default {
     onMounted(load);
     return {
       fixtures, allCoaches, coachDisplayName, loadError, load, grouped, displayedGroups, showPast, pastGroups, pastFixtureCount,
-      showForm, draft, editingId, error, isAdmin,
+      showForm, formEl, draft, editingId, error, isAdmin, strengthLabel,
       startAdd, startEdit, cancelEdit, duplicateAsNewTeam, save, remove,
       showImport, importText, importHeaders, parsedRows, mapping, useHomeAwayColumns,
       ourNameInFile, teamCount, teamLabels, importError, importing, previewFixtures, skippedRowCount, unmatchedSideCount,
@@ -252,12 +259,20 @@ export default {
         <button class="outline" @click="openImport" style="width:auto;">+ Import from file</button>
       </div>
 
-      <article v-if="showForm">
+      <article v-if="showForm" ref="formEl">
         <form @submit.prevent="save">
           <div class="form-grid">
             <label>Date <input v-model="draft.match_date" type="date" required /></label>
             <label>Kickoff <input v-model="draft.kickoff" type="time" /></label>
             <label>Our team label <input v-model="draft.team_name" placeholder="e.g. Orange (optional)" /></label>
+            <label>Squad strength <small>(coach-only, never shared)</small>
+              <select v-model="draft.team_strength">
+                <option value="">Not set</option>
+                <option value="stronger">Stronger</option>
+                <option value="development">Development</option>
+                <option value="mixed">Mixed</option>
+              </select>
+            </label>
             <label>Opponent <input v-model="draft.opponent" required /></label>
             <label>Home/Away
               <select v-model="draft.home_away"><option value="home">Home</option><option value="away">Away</option></select>
@@ -379,6 +394,14 @@ export default {
                 <label>Date <input v-model="draft.match_date" type="date" required /></label>
                 <label>Kickoff <input v-model="draft.kickoff" type="time" /></label>
                 <label>Our team label <input v-model="draft.team_name" placeholder="e.g. Orange (optional)" /></label>
+                <label>Squad strength <small>(coach-only, never shared)</small>
+                  <select v-model="draft.team_strength">
+                    <option value="">Not set</option>
+                    <option value="stronger">Stronger</option>
+                    <option value="development">Development</option>
+                    <option value="mixed">Mixed</option>
+                  </select>
+                </label>
                 <label>Opponent <input v-model="draft.opponent" required /></label>
                 <label>Home/Away
                   <select v-model="draft.home_away"><option value="home">Home</option><option value="away">Away</option></select>
@@ -413,6 +436,7 @@ export default {
                 <strong>{{ f.team_name || 'Team' }}</strong> vs {{ f.opponent }}
                 <span class="tag">{{ f.home_away }}</span>
                 <span class="tag">{{ f.status }}</span>
+                <span v-if="f.team_strength" class="tag" title="Coach-only note, never shared">{{ strengthLabel(f.team_strength) }}</span>
               </header>
               <p v-if="f.status === 'played'" class="scoreline">{{ f.our_score }}<span class="vs">&ndash;</span>{{ f.their_score }}</p>
               <p style="font-size:0.85rem; opacity:0.75;">{{ f.venue }} <span v-if="f.kickoff">&middot; {{ f.kickoff }}</span></p>

@@ -6,6 +6,7 @@ import { store } from "../store.js";
 import { playerDisplayName } from "../lib/format.js";
 import { useLoader } from "../lib/useLoader.js";
 import { POSITIONS } from "../lib/positions.js";
+import { strengthLabel } from "../lib/teamStrength.js";
 
 // Sort key for a player's preferred positions: their earliest (most senior)
 // position in POSITIONS order, e.g. a DEF/MID player sorts with defenders.
@@ -107,7 +108,7 @@ export default {
         const assistLines = squad.filter((p) => p.assists > 0).map((p) => p.name + (p.assists > 1 ? ` x${p.assists}` : ""));
         if (assistLines.length) lines.push(`🅰️ ${assistLines.join(", ")}`);
         const potm = squad.find((p) => p.potm);
-        if (potm) lines.push(`⭐ POTM: ${potm.name}`);
+        if (potm) lines.push(`⭐ ${potm.name}`);
         lines.push("");
       }
       return lines.join("\n");
@@ -135,7 +136,13 @@ export default {
       shareStatus.value = "";
       try {
         const { default: html2canvas } = await import("html2canvas");
-        const canvas = await html2canvas(captureEl.value, { backgroundColor: "#ffffff", scale: 2 });
+        const canvas = await html2canvas(captureEl.value, {
+          backgroundColor: "#ffffff",
+          scale: 2,
+          // Squad strength is a coach-only note - shown on screen, but left
+          // out of the printed sheet (no-print) and, here, the shared image.
+          ignoreElements: (el) => el.classList?.contains("capture-exclude"),
+        });
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
         if (!blob) throw new Error("Could not generate image");
         const file = new File([blob], `team-sheet-${props.date}.png`, { type: "image/png" });
@@ -163,7 +170,7 @@ export default {
 
     onMounted(load);
     return {
-      fixtures, squadByFixture, unselectedPlayers, clubName, playedFixtures, playerDisplayName,
+      fixtures, squadByFixture, unselectedPlayers, clubName, playedFixtures, playerDisplayName, strengthLabel,
       share, shareResults, shareImage, sharingImage, captureEl, printSheet, shareStatus, loadError, load,
     };
   },
@@ -186,6 +193,7 @@ export default {
               <strong>{{ f.team_name || 'Team' }}</strong> vs {{ f.opponent }}
               <span class="tag">{{ f.home_away === 'home' ? 'Home' : 'Away' }}</span>
               <span class="tag">{{ (squadByFixture[f.id] || []).length }} selected</span>
+              <span v-if="f.team_strength" class="tag no-print capture-exclude" title="Coach-only, not shown when shared">{{ strengthLabel(f.team_strength) }}</span>
             </header>
             <p style="font-size:0.85rem; opacity:0.75;">
               <span v-if="f.kickoff">{{ f.kickoff }} &middot; </span>{{ f.venue }}

@@ -6,6 +6,8 @@ import { listAppearancesForFixture, upsertAppearance } from "../api/appearances.
 import PlayerPicker from "../components/PlayerPicker.js";
 import { playerDisplayName } from "../lib/format.js";
 import { useLoader } from "../lib/useLoader.js";
+import { strengthLabel } from "../lib/teamStrength.js";
+import { isAdmin } from "../store.js";
 
 export default {
   name: "MatchdayView",
@@ -75,6 +77,25 @@ export default {
       return players.value.filter((p) => !fixtures.value.some((f) => (rowsByFixture[f.id] || {})[p.id]?.selected));
     });
 
+    // Admin-only average ability of the selected squad, to sanity-check a
+    // fixture's "stronger/development/mixed" split - never individual scores,
+    // just the one aggregate number, and only rendered for admins (see the
+    // isAdmin() check in the template).
+    const teamStrengthScore = computed(() => {
+      const result = {};
+      for (const f of fixtures.value) {
+        const rows = rowsByFixture[f.id] || {};
+        const selectedIds = Object.entries(rows).filter(([, row]) => row.selected).map(([pid]) => pid);
+        const rated = selectedIds
+          .map((pid) => players.value.find((p) => p.id === pid)?.ability)
+          .filter((a) => a != null);
+        result[f.id] = rated.length
+          ? { avg: Math.round((rated.reduce((sum, a) => sum + a, 0) / rated.length) * 10) / 10, ratedCount: rated.length, selectedCount: selectedIds.length }
+          : null;
+      }
+      return result;
+    });
+
     async function onChange(fixtureId, playerId, patch) {
       const current = rowsByFixture[fixtureId][playerId] || { fixture_id: fixtureId, player_id: playerId };
       const updated = { ...current, ...patch, fixture_id: fixtureId, player_id: playerId };
@@ -94,7 +115,7 @@ export default {
     }
 
     onMounted(load);
-    return { fixtures, players, availability, rowsByFixture, otherMatchesByFixture, unselectedPlayers, playerDisplayName, saving, savedAt, onChange, loadError, load };
+    return { fixtures, players, availability, rowsByFixture, otherMatchesByFixture, unselectedPlayers, teamStrengthScore, playerDisplayName, strengthLabel, isAdmin, saving, savedAt, onChange, loadError, load };
   },
   template: `
     <main class="container">
@@ -114,9 +135,15 @@ export default {
 
       <div class="matchday-columns" style="margin-top:1rem;">
         <article v-for="f in fixtures" :key="f.id">
-          <header><strong>{{ f.team_name || 'Team' }}</strong> vs {{ f.opponent }} <span class="tag">{{ f.home_away }}</span></header>
+          <header><strong>{{ f.team_name || 'Team' }}</strong> vs {{ f.opponent }} <span class="tag">{{ f.home_away }}</span>
+            <span v-if="f.team_strength" class="tag">{{ strengthLabel(f.team_strength) }}</span>
+          </header>
           <p v-if="f.kickoff" style="font-size:0.85rem; opacity:0.75; margin:0.25rem 0;">Kick off: {{ f.kickoff }}</p>
           <p v-if="(f.coaches || []).length" style="font-size:0.85rem; opacity:0.75; margin:0.25rem 0;">Coaches: {{ f.coaches.join(', ') }}</p>
+          <p v-if="isAdmin() && teamStrengthScore[f.id]" style="font-size:0.85rem; opacity:0.75; margin:0.25rem 0;"
+             title="Admin only - never shown to other coaches or individually per player">
+            Avg ability: {{ teamStrengthScore[f.id].avg }} ({{ teamStrengthScore[f.id].ratedCount }}/{{ teamStrengthScore[f.id].selectedCount }} rated)
+          </p>
           <PlayerPicker
             :players="players"
             :rows="rowsByFixture[f.id] || {}"
