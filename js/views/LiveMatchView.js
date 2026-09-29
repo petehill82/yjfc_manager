@@ -23,6 +23,11 @@ export default {
     const pendingScorerPid = ref(null);
     const lastGoal = ref(null);      // { side: 'us'|'them', scorerPid, assistPid } - single-level undo
 
+    // Sentinel scorer "id" for a goal that isn't credited to any of our
+    // players - an opposition own goal, or just nobody caught who scored.
+    // Never has an assist, so picking it skips straight past that step.
+    const NO_SCORER = "__no_scorer__";
+
     function playerName(pid) {
       return playerDisplayName(rows[pid].players);
     }
@@ -83,12 +88,17 @@ export default {
     function cancelGoal() { step.value = null; pendingScorerPid.value = null; }
     function pickScorer(pid) { pendingScorerPid.value = pid; step.value = "assist"; }
 
+    // No scorer / own goal - straight to finishGoal, no assist to ask about.
+    function pickNoScorer() { pendingScorerPid.value = NO_SCORER; finishGoal(null); }
+
     async function finishGoal(assistPid) {
       const scorerPid = pendingScorerPid.value;
-      rows[scorerPid].goals = (rows[scorerPid].goals || 0) + 1;
-      if (assistPid) rows[assistPid].assists = (rows[assistPid].assists || 0) + 1;
+      if (scorerPid !== NO_SCORER) {
+        rows[scorerPid].goals = (rows[scorerPid].goals || 0) + 1;
+        if (assistPid) rows[assistPid].assists = (rows[assistPid].assists || 0) + 1;
+      }
       await Promise.all([
-        saveRow(scorerPid),
+        scorerPid === NO_SCORER ? Promise.resolve() : saveRow(scorerPid),
         assistPid ? saveRow(assistPid) : Promise.resolve(),
         saveFixture(playedPatch({ our_score: (fixture.value.our_score || 0) + 1 })),
       ]);
@@ -106,10 +116,12 @@ export default {
       const g = lastGoal.value;
       if (!g) return;
       if (g.side === "us") {
-        rows[g.scorerPid].goals = Math.max(0, (rows[g.scorerPid].goals || 0) - 1);
-        if (g.assistPid) rows[g.assistPid].assists = Math.max(0, (rows[g.assistPid].assists || 0) - 1);
+        if (g.scorerPid !== NO_SCORER) {
+          rows[g.scorerPid].goals = Math.max(0, (rows[g.scorerPid].goals || 0) - 1);
+          if (g.assistPid) rows[g.assistPid].assists = Math.max(0, (rows[g.assistPid].assists || 0) - 1);
+        }
         await Promise.all([
-          saveRow(g.scorerPid),
+          g.scorerPid === NO_SCORER ? Promise.resolve() : saveRow(g.scorerPid),
           g.assistPid ? saveRow(g.assistPid) : Promise.resolve(),
           saveFixture({ our_score: Math.max(0, (fixture.value.our_score || 0) - 1) }),
         ]);
@@ -123,9 +135,18 @@ export default {
       const g = lastGoal.value;
       if (!g) return "";
       if (g.side === "them") return `Goal for ${fixture.value.opponent}`;
+      if (g.scorerPid === NO_SCORER) return "Goal: no scorer / own goal";
       let label = `Goal: ${playerName(g.scorerPid)}`;
       if (g.assistPid) label += ` (assist ${playerName(g.assistPid)})`;
       return label;
+    });
+
+    // Goals credited to no player - an own goal, or nobody caught who scored -
+    // derived from the gap between the team score and the sum of individual
+    // tallies, so it stays correct after undo without needing its own counter.
+    const unaccountedGoals = computed(() => {
+      const total = order.value.reduce((sum, pid) => sum + (rows[pid]?.goals || 0), 0);
+      return Math.max(0, (fixture.value?.our_score || 0) - total);
     });
 
     async function setPotm(pid) {
@@ -250,6 +271,7 @@ export default {
       ];
       const scorerLines = order.value.filter((pid) => rows[pid].goals > 0)
         .map((pid) => playerName(pid) + (rows[pid].goals > 1 ? ` x${rows[pid].goals}` : ""));
+      if (unaccountedGoals.value > 0) scorerLines.push(unaccountedGoals.value > 1 ? `og/unknown x${unaccountedGoals.value}` : "og/unknown");
       if (scorerLines.length) lines.push(`⚽ ${scorerLines.join(", ")}`);
       const assistLines = order.value.filter((pid) => rows[pid].assists > 0)
         .map((pid) => playerName(pid) + (rows[pid].assists > 1 ? ` x${rows[pid].assists}` : ""));
@@ -273,10 +295,10 @@ export default {
     onBeforeUnmount(stopTicking);
     return {
       fixture, rows, order, saving, savedAt, playerName, squadNum,
-      step, pendingScorerPid, lastGoal, lastGoalLabel, scorers, fairMinutesOn, fairMinutesOff,
+      step, pendingScorerPid, lastGoal, lastGoalLabel, scorers, unaccountedGoals, fairMinutesOn, fairMinutesOff,
       halfMinutes, timerState, elapsedLabel, halfTimeReached,
       startTimer, pauseTimer, resetHalfTimer, startSecondHalf,
-      startGoal, cancelGoal, pickScorer, finishGoal, addOppositionGoal, undoLastGoal,
+      startGoal, cancelGoal, pickScorer, pickNoScorer, finishGoal, addOppositionGoal, undoLastGoal,
       setPotm, markFullTime, shareReport, reportStatus, loadError, load,
     };
   },
@@ -319,10 +341,13 @@ export default {
         </div>
       </div>
 
-      <p style="text-align:center; font-size:0.85rem;">
-        <span v-if="lastGoal">{{ lastGoalLabel }} &middot; <a href="#" @click.prevent="undoLastGoal">Undo</a></span>
-        <span v-else style="opacity:0.6;">No goals logged yet</span>
-      </p>
+      <div style="text-align:center; font-size:0.85rem;">
+        <p style="margin:0;">
+          <span v-if="lastGoal">{{ lastGoalLabel }}</span>
+          <span v-else style="opacity:0.6;">No goals logged yet</span>
+        </p>
+        <button v-if="lastGoal" type="button" class="outline" style="width:auto; margin-top:0.35rem;" @click="undoLastGoal">&#8617; Undo last goal</button>
+      </div>
       <p style="text-align:center; font-size:0.8rem; opacity:0.6;">
         <span v-if="saving">Saving...</span><span v-else-if="savedAt">Saved {{ savedAt }}</span>
       </p>
@@ -334,6 +359,7 @@ export default {
       <article v-if="step === 'scorer'">
         <h3 style="margin-top:0;">Who scored?</h3>
         <div class="live-player-grid">
+          <button type="button" class="live-player-btn outline" @click="pickNoScorer">No scorer / Own goal</button>
           <button v-for="pid in order" :key="pid" type="button" class="live-player-btn" @click="pickScorer(pid)">
             <span class="num">{{ squadNum(pid) }}</span> {{ playerName(pid) }}
           </button>
@@ -359,12 +385,13 @@ export default {
       </div>
       <p v-if="!order.length" style="opacity:0.7;">No players selected for this fixture yet - pick a team first.</p>
 
-      <div v-if="scorers.length">
+      <div v-if="scorers.length || unaccountedGoals">
         <h3>Goals so far</h3>
         <ul>
           <li v-for="pid in scorers" :key="pid">
             {{ playerName(pid) }} &mdash; {{ rows[pid].goals }} goal{{ rows[pid].goals === 1 ? '' : 's' }}<span v-if="rows[pid].assists"> &middot; {{ rows[pid].assists }} assist{{ rows[pid].assists === 1 ? '' : 's' }}</span>
           </li>
+          <li v-if="unaccountedGoals">No scorer / own goal &mdash; {{ unaccountedGoals }} goal{{ unaccountedGoals === 1 ? '' : 's' }}</li>
         </ul>
       </div>
 
