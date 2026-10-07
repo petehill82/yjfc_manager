@@ -6,9 +6,10 @@ import { playerDisplayName } from "../lib/format.js";
 import { useLoader } from "../lib/useLoader.js";
 
 function outcome(r) {
-  if (r.our_score == null || r.their_score == null) return "";
-  if (r.our_score > r.their_score) return "W";
-  if (r.our_score < r.their_score) return "L";
+  const us = r.our_score ?? 0;
+  const them = r.their_score ?? 0;
+  if (us > them) return "W";
+  if (us < them) return "L";
   return "D";
 }
 
@@ -95,7 +96,7 @@ export default {
                   {{ r.home_away === 'home' ? '' : '@ ' }}{{ r.opponent }}
                   <small v-if="r.team_name">({{ r.team_name }})</small>
                 </td>
-                <td class="col-score"><span class="scoreline compact">{{ r.our_score }}<span class="vs">&ndash;</span>{{ r.their_score }}</span></td>
+                <td class="col-score"><span class="scoreline compact">{{ r.our_score ?? 0 }}<span class="vs">&ndash;</span>{{ r.their_score ?? 0 }}</span></td>
                 <td class="col-potm">
                   <router-link v-if="r.potm_player_id" :to="'/players/' + r.potm_player_id" @click.stop>
                     {{ playerDisplayName({ first_name: r.potm_first_name, last_name: r.potm_last_name, display_name: r.potm_display_name }) }}

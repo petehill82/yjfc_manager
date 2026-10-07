@@ -132,6 +132,8 @@ body {
    so this has to target the <li> too). */
 .player-list { padding-left: 1.3rem; margin: 0.4rem 0 0; }
 .player-list li { list-style-type: disc; padding-left: 0.15rem; }
+/* Quiet marker for a player who's also in another team's squad that day. */
+.also-playing { font-size: 0.6em; vertical-align: super; opacity: 0.55; margin-left: 0.15rem; }
 .live-player-btn.active .num { background: #fff; color: var(--club-orange-dark); }
 
 /* ---------- Print (team sheet) ---------- */

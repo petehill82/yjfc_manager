@@ -63,6 +63,35 @@ export default {
 
     const clubName = computed(() => store.clubSettings.club_name);
 
+    // Players in more than one of the day's squads: fixture_id -> player_id ->
+    // labels of the *other* teams they're in. Shown on the sheet, the printout,
+    // the shared image and the shared text, so parents see it too.
+    const otherTeamsByFixture = computed(() => {
+      const label = (f) => f.team_name || f.opponent;
+      const teamsByPlayer = {};
+      for (const f of fixtures.value) {
+        for (const p of squadByFixture.value[f.id] || []) (teamsByPlayer[p.id] ||= []).push(f);
+      }
+      const result = {};
+      for (const f of fixtures.value) {
+        const others = {};
+        for (const p of squadByFixture.value[f.id] || []) {
+          const rest = (teamsByPlayer[p.id] || []).filter((o) => o.id !== f.id);
+          if (rest.length) others[p.id] = rest.map(label);
+        }
+        result[f.id] = others;
+      }
+      return result;
+    });
+
+    const hasDoublePlayers = computed(() =>
+      Object.values(otherTeamsByFixture.value).some((others) => Object.keys(others).length)
+    );
+
+    function alsoIn(fixtureId, playerId) {
+      return otherTeamsByFixture.value[fixtureId]?.[playerId] || [];
+    }
+
     function asText() {
       const lines = [`${clubName.value} - Matchday ${props.date}`, ""];
       for (const f of fixtures.value) {
@@ -70,7 +99,11 @@ export default {
         lines.push(`${f.team_name || 'Team'} vs ${f.opponent} (${f.home_away === 'home' ? 'Home' : 'Away'}) - ${squad.length} selected`);
         lines.push(`${f.kickoff || ''}${f.venue ? ' @ ' + f.venue : ''}`.trim());
         if (f.coaches?.length) lines.push(`Coaches: ${f.coaches.join(', ')}`);
-        lines.push(...squad.map((p) => p.name));
+        lines.push(...squad.map((p) => {
+          const also = alsoIn(f.id, p.id);
+          return also.length ? `${p.name} 🔁` : p.name;
+        }));
+        if (hasDoublePlayers.value) lines.push("🔁 = playing in more than one game");
         lines.push("");
       }
       return lines.join("\n");
@@ -170,7 +203,7 @@ export default {
 
     onMounted(load);
     return {
-      fixtures, squadByFixture, unselectedPlayers, clubName, playedFixtures, playerDisplayName, strengthLabel,
+      fixtures, squadByFixture, unselectedPlayers, clubName, playedFixtures, playerDisplayName, strengthLabel, alsoIn, hasDoublePlayers,
       share, shareResults, shareImage, sharingImage, captureEl, printSheet, shareStatus, loadError, load,
     };
   },
@@ -200,12 +233,15 @@ export default {
             </p>
             <p v-if="(f.coaches || []).length" style="font-size:0.85rem; opacity:0.75;">Coaches: {{ f.coaches.join(', ') }}</p>
             <ul class="player-list">
-              <li v-for="p in (squadByFixture[f.id] || [])" :key="p.id">{{ p.name }}</li>
+              <li v-for="p in (squadByFixture[f.id] || [])" :key="p.id">{{ p.name }}
+                <span v-if="alsoIn(f.id, p.id).length" class="also-playing" title="Also playing in another game today">&#128257;</span>
+              </li>
             </ul>
             <p v-if="!(squadByFixture[f.id] || []).length" style="font-size:0.85rem; opacity:0.7;">No squad selected yet.</p>
           </article>
         </div>
         <p v-if="!fixtures.length">No fixtures scheduled on this date.</p>
+        <p v-if="hasDoublePlayers" style="font-size:0.8rem; opacity:0.7; margin:0.5rem 0 0;">&#128257; = playing in more than one game</p>
       </div>
 
       <article v-if="unselectedPlayers.length" class="no-print" style="border-top-color: var(--status-warn); margin-top:1rem;">

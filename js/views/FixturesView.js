@@ -438,7 +438,7 @@ export default {
                 <span class="tag">{{ f.status }}</span>
                 <span v-if="f.team_strength" class="tag" title="Coach-only note, never shared">{{ strengthLabel(f.team_strength) }}</span>
               </header>
-              <p v-if="f.status === 'played'" class="scoreline">{{ f.our_score }}<span class="vs">&ndash;</span>{{ f.their_score }}</p>
+              <p v-if="f.status === 'played'" class="scoreline">{{ f.our_score ?? 0 }}<span class="vs">&ndash;</span>{{ f.their_score ?? 0 }}</p>
               <p style="font-size:0.85rem; opacity:0.75;">{{ f.venue }} <span v-if="f.kickoff">&middot; {{ f.kickoff }}</span></p>
               <p v-if="(f.coaches || []).length" style="font-size:0.85rem; opacity:0.75;">Coaches: {{ f.coaches.join(', ') }}</p>
               <footer style="display:flex; gap:0.5rem; flex-wrap:wrap;">

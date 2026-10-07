@@ -37,7 +37,7 @@ export default {
           <span class="tag">{{ f.home_away === 'home' ? 'Home' : 'Away' }}</span>
           <span class="tag">{{ f.status }}</span>
         </header>
-        <p v-if="f.status === 'played'" class="scoreline">{{ f.our_score }}<span class="vs">&ndash;</span>{{ f.their_score }}</p>
+        <p v-if="f.status === 'played'" class="scoreline">{{ f.our_score ?? 0 }}<span class="vs">&ndash;</span>{{ f.their_score ?? 0 }}</p>
         <p style="font-size:0.9rem; opacity:0.8;">
           <span v-if="f.kickoff">{{ f.kickoff }} &middot; </span>{{ f.venue }}
         </p>
