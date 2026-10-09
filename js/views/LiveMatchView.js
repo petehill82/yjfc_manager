@@ -155,7 +155,21 @@ export default {
       await Promise.all([...toClear.map((other) => { rows[other].potm = false; return saveRow(other); }), saveRow(pid)]);
     }
 
-    async function markFullTime() { await saveFixture({ status: "played" }); }
+    // Full time: mark played and lock in any side that never scored as 0, so a
+    // 0-0 (or a 3-0) is recorded as a real score rather than blank.
+    async function markFullTime() {
+      await saveFixture({
+        status: "played",
+        our_score: fixture.value.our_score ?? 0,
+        their_score: fixture.value.their_score ?? 0,
+      });
+    }
+
+    // Still needed while the match isn't marked played, or a side's score is
+    // still blank (a goal auto-marks it played, but leaves the other side blank).
+    const needsFullTime = computed(() =>
+      fixture.value && (fixture.value.status !== "played" || fixture.value.our_score == null || fixture.value.their_score == null)
+    );
 
     const scorers = computed(() => order.value.filter((pid) => rows[pid].goals > 0));
 
@@ -299,7 +313,7 @@ export default {
       halfMinutes, timerState, elapsedLabel, halfTimeReached,
       startTimer, pauseTimer, resetHalfTimer, startSecondHalf,
       startGoal, cancelGoal, pickScorer, pickNoScorer, finishGoal, addOppositionGoal, undoLastGoal,
-      setPotm, markFullTime, shareReport, reportStatus, loadError, load,
+      setPotm, markFullTime, needsFullTime, shareReport, reportStatus, loadError, load,
     };
   },
   template: `
@@ -396,7 +410,7 @@ export default {
       </div>
 
       <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:1rem;">
-        <button v-if="fixture.status !== 'played'" type="button" class="outline" style="width:auto;" @click="markFullTime">Full time - mark as played</button>
+        <button v-if="needsFullTime" type="button" style="width:auto;" @click="markFullTime">Full time</button>
         <button type="button" class="outline" style="width:auto;" @click="shareReport">Share result</button>
         <router-link to="/fixtures"><button type="button" class="secondary" style="width:auto;">Back to fixtures</button></router-link>
       </div>

@@ -4,6 +4,7 @@ import {
 } from "chart.js";
 import { store, currentSeason } from "../store.js";
 import { playerSeasonStats, teamResults } from "../api/stats.js";
+import { playerCleanSheets } from "../api/cleanSheets.js";
 import { listUpcomingFixtures } from "../api/fixtures.js";
 import StatTile from "../components/StatTile.js";
 import { useLoader } from "../lib/useLoader.js";
@@ -56,21 +57,22 @@ export default {
   components: { StatTile },
   setup() {
     const players = ref([]);
+    const cleanSheets = ref([]);
     const teams = ref([]);
     const upcoming = ref([]);
     const charts = {};
     const leaderboardCanvas = ref(null);
     const matchesCanvas = ref(null);
     const potmCanvas = ref(null);
-    const goalkeepingCanvas = ref(null);
+    const cleanSheetsCanvas = ref(null);
     const homeAwayCanvas = ref(null);
 
     const totals = computed(() => {
       const t = teams.value.reduce((acc, r) => {
         acc.played += r.played; acc.wins += r.wins; acc.draws += r.draws; acc.losses += r.losses;
-        acc.gf += r.goals_for; acc.ga += r.goals_against;
+        acc.gf += r.goals_for; acc.ga += r.goals_against; acc.cs += r.clean_sheets ?? 0;
         return acc;
-      }, { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 });
+      }, { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, cs: 0 });
       return t;
     });
 
@@ -141,20 +143,24 @@ export default {
       });
     }
 
-    function buildGoalkeeping() {
-      const keepers = players.value.filter((p) => p.minutes_in_goal > 0)
-        .sort((a, b) => b.minutes_in_goal - a.minutes_in_goal);
-      charts.goalkeeping?.destroy();
-      charts.goalkeeping = null;
+    function buildCleanSheets() {
+      const keepers = [...cleanSheets.value].sort((a, b) => b.clean_sheets - a.clean_sheets);
+      charts.cleanSheets?.destroy();
+      charts.cleanSheets = null;
       if (!keepers.length) return;
       const opts = baseOpts();
-      charts.goalkeeping = new Chart(goalkeepingCanvas.value, {
+      charts.cleanSheets = new Chart(cleanSheetsCanvas.value, {
         type: "bar",
         data: {
           labels: keepers.map((p) => chartLabel(p)),
-          datasets: [{ label: "Minutes in goal", data: keepers.map((p) => p.minutes_in_goal), backgroundColor: AQUA, borderRadius: 4, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.9 }],
+          datasets: [{ label: "Clean sheets", data: keepers.map((p) => p.clean_sheets), backgroundColor: AQUA, borderRadius: 4, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.9 }],
         },
-        options: { ...opts, indexAxis: "y", plugins: { ...opts.plugins, legend: { display: false } } },
+        options: {
+          ...opts,
+          indexAxis: "y",
+          plugins: { ...opts.plugins, legend: { display: false } },
+          scales: { ...opts.scales, x: { ...opts.scales.x, ticks: { ...opts.scales.x.ticks, stepSize: 1 } } },
+        },
       });
     }
 
@@ -189,12 +195,13 @@ export default {
       if (!seasonId) return;
       players.value = await playerSeasonStats(seasonId);
       teams.value = await teamResults(seasonId);
+      cleanSheets.value = await playerCleanSheets(seasonId);
       upcoming.value = await listUpcomingFixtures(5);
       await nextTick();
       safeBuild("leaderboard", buildLeaderboard);
       safeBuild("matchesPlayed", buildMatchesPlayed);
       safeBuild("potm", buildPotm);
-      safeBuild("goalkeeping", buildGoalkeeping);
+      safeBuild("cleanSheets", buildCleanSheets);
       safeBuild("homeAway", buildHomeAway);
     });
 
@@ -202,7 +209,7 @@ export default {
     onMounted(load);
     onBeforeUnmount(destroyCharts);
 
-    return { players, teams, upcoming, totals, loadError, load, leaderboardCanvas, matchesCanvas, potmCanvas, goalkeepingCanvas, homeAwayCanvas, store, currentSeason, GOOD, CRITICAL, NEUTRAL };
+    return { players, cleanSheets, teams, upcoming, totals, loadError, load, leaderboardCanvas, matchesCanvas, potmCanvas, cleanSheetsCanvas, homeAwayCanvas, store, currentSeason, GOOD, CRITICAL, NEUTRAL };
   },
   template: `
     <main class="container">
@@ -223,15 +230,13 @@ export default {
         <StatTile label="Losses" :value="totals.losses" />
         <StatTile label="Goals for" :value="totals.gf" />
         <StatTile label="Goals against" :value="totals.ga" />
+        <StatTile label="Clean sheets" :value="totals.cs" />
       </div>
       <p style="font-size:0.85rem;">
         <span class="tag" :style="{ background: '#dcfce7', color: GOOD }">&#9679; Wins</span>
         <span class="tag" :style="{ background: '#f4f4f2', color: NEUTRAL }">&#9679; Draws</span>
         <span class="tag" :style="{ background: '#fee2e2', color: CRITICAL }">&#9679; Losses</span>
       </p>
-
-      <h3>Goals &amp; assists (top 8)</h3>
-      <div style="height:280px;"><canvas ref="leaderboardCanvas"></canvas></div>
 
       <h3>Matches played</h3>
       <div :style="{ height: Math.max(220, players.length * 22) + 'px' }"><canvas ref="matchesCanvas"></canvas></div>
@@ -240,9 +245,12 @@ export default {
       <div :style="{ height: Math.max(220, players.length * 22) + 'px' }"><canvas ref="potmCanvas"></canvas></div>
       <p v-if="!players.some(p => p.potm_count > 0)" style="opacity:0.7;">No POTM awarded yet this season.</p>
 
-      <h3>Minutes in goal</h3>
-      <div style="height:220px;"><canvas ref="goalkeepingCanvas"></canvas></div>
-      <p v-if="!players.some(p => p.minutes_in_goal > 0)" style="opacity:0.7;">No goalkeeping minutes recorded yet.</p>
+      <h3>Clean sheets</h3>
+      <div :style="{ height: Math.max(120, cleanSheets.length * 30 + 60) + 'px' }"><canvas ref="cleanSheetsCanvas"></canvas></div>
+      <p v-if="!cleanSheets.length" style="opacity:0.7;">No clean sheets yet this season.</p>
+
+      <h3>Goals &amp; assists (top 8)</h3>
+      <div style="height:280px;"><canvas ref="leaderboardCanvas"></canvas></div>
 
       <h3>Home vs away results</h3>
       <div style="height:260px;"><canvas ref="homeAwayCanvas"></canvas></div>
