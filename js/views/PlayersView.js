@@ -1,13 +1,14 @@
 import { ref, computed, watch, onMounted } from "vue";
 import { listPlayers, createPlayer, setPlayerActive } from "../api/players.js";
 import { playerSeasonStats } from "../api/stats.js";
+import { playerCleanSheets } from "../api/cleanSheets.js";
 import { store, isAdmin, currentSeason } from "../store.js";
 import { playerDisplayName } from "../lib/format.js";
 import { useLoader } from "../lib/useLoader.js";
 import { POSITIONS } from "../lib/positions.js";
 
 const BLANK_PLAYER = { first_name: "", last_name: "", display_name: "", squad_number: null, ability: null, year_of_birth: null, preferred_positions: [] };
-const BLANK_STATS = { apps: 0, goals: 0, assists: 0, potm_count: 0 };
+const BLANK_STATS = { apps: 0, goals: 0, assists: 0, potm_count: 0, clean_sheets: 0 };
 
 export default {
   name: "PlayersView",
@@ -24,7 +25,8 @@ export default {
       players.value = await listPlayers({ activeOnly: !showArchived.value });
       if (store.currentSeasonId) {
         const stats = await playerSeasonStats(store.currentSeasonId);
-        statsByPlayer.value = Object.fromEntries(stats.map((s) => [s.player_id, s]));
+        const cleanSheets = Object.fromEntries((await playerCleanSheets(store.currentSeasonId)).map((c) => [c.player_id, c.clean_sheets]));
+        statsByPlayer.value = Object.fromEntries(stats.map((s) => [s.player_id, { ...s, clean_sheets: cleanSheets[s.player_id] || 0 }]));
       } else {
         statsByPlayer.value = {};
       }
@@ -147,6 +149,7 @@ export default {
               <th style="cursor:pointer;" @click="sortBy('goals')">Goals{{ sortIndicator('goals') }}</th>
               <th style="cursor:pointer;" @click="sortBy('assists')">Assists{{ sortIndicator('assists') }}</th>
               <th style="cursor:pointer;" @click="sortBy('potm_count')">POTM{{ sortIndicator('potm_count') }}</th>
+              <th style="cursor:pointer;" @click="sortBy('clean_sheets')" >Clean sheets{{ sortIndicator('clean_sheets') }}</th>
               <th></th>
             </tr>
           </thead>
@@ -162,6 +165,7 @@ export default {
               <td>{{ statsFor(p.id).goals }}</td>
               <td>{{ statsFor(p.id).assists }}</td>
               <td>{{ statsFor(p.id).potm_count }}</td>
+              <td>{{ statsFor(p.id).clean_sheets }}</td>
               <td>
                 <button v-if="isAdmin()" class="secondary outline" style="width:auto;" @click="toggleArchive(p)">
                   {{ p.active ? 'Archive' : 'Restore' }}

@@ -14,7 +14,7 @@ export async function playerCleanSheets(seasonId) {
   const byPlayer = {};
   for (const a of data) {
     if ((a.fixtures.their_score ?? 0) !== 0) continue;
-    (byPlayer[a.player_id] ||= { ...a.players, clean_sheets: 0 }).clean_sheets += 1;
+    (byPlayer[a.player_id] ||= { ...a.players, player_id: a.player_id, clean_sheets: 0 }).clean_sheets += 1;
   }
   return Object.values(byPlayer);
 }
