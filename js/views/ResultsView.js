@@ -120,6 +120,9 @@ export default {
                       No goals or assists recorded for this match.
                     </p>
                   </template>
+                  <router-link :to="'/match-stats/' + r.fixture_id">
+                    <button type="button" class="outline" style="width:auto; margin:0.5rem 0 0;">Edit score &amp; stats</button>
+                  </router-link>
                 </td>
               </tr>
             </template>
