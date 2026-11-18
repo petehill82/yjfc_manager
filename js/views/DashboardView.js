@@ -5,6 +5,7 @@ import {
 import { store, currentSeason } from "../store.js";
 import { playerSeasonStats, teamResults } from "../api/stats.js";
 import { playerCleanSheets } from "../api/cleanSheets.js";
+import { playerHomeAway } from "../api/homeAway.js";
 import { listUpcomingFixtures } from "../api/fixtures.js";
 import StatTile from "../components/StatTile.js";
 import { useLoader } from "../lib/useLoader.js";
@@ -58,11 +59,12 @@ export default {
   setup() {
     const players = ref([]);
     const cleanSheets = ref([]);
+    const homeAwayGames = ref([]);
+    const homeAwayGamesCanvas = ref(null);
     const teams = ref([]);
     const upcoming = ref([]);
     const charts = {};
     const leaderboardCanvas = ref(null);
-    const matchesCanvas = ref(null);
     const potmCanvas = ref(null);
     const cleanSheetsCanvas = ref(null);
     const homeAwayCanvas = ref(null);
@@ -110,17 +112,29 @@ export default {
       });
     }
 
-    function buildMatchesPlayed() {
-      const sorted = [...players.value].sort((a, b) => b.apps - a.apps);
-      charts.matches?.destroy();
+    function buildHomeAwayGames() {
+      const sorted = [...homeAwayGames.value].sort((a, b) => (b.home + b.away) - (a.home + a.away));
+      charts.homeAwayGames?.destroy();
+      charts.homeAwayGames = null;
+      if (!sorted.length) return;
       const opts = baseOpts();
-      charts.matches = new Chart(matchesCanvas.value, {
+      charts.homeAwayGames = new Chart(homeAwayGamesCanvas.value, {
         type: "bar",
         data: {
           labels: sorted.map((p) => chartLabel(p)),
-          datasets: [{ label: "Matches played", data: sorted.map((p) => p.apps), backgroundColor: ORANGE, borderRadius: 4, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.9 }],
+          datasets: [
+            { label: "Home", data: sorted.map((p) => p.home), backgroundColor: ORANGE, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.9 },
+            { label: "Away", data: sorted.map((p) => p.away), backgroundColor: BLUE, borderSkipped: false, categoryPercentage: 0.7, barPercentage: 0.9 },
+          ],
         },
-        options: { ...opts, indexAxis: "y", plugins: { ...opts.plugins, legend: { display: false } } },
+        options: {
+          ...opts,
+          indexAxis: "y",
+          scales: {
+            x: { ...opts.scales.x, stacked: true, ticks: { ...opts.scales.x.ticks, stepSize: 1 } },
+            y: { ...opts.scales.y, stacked: true },
+          },
+        },
       });
     }
 
@@ -196,10 +210,11 @@ export default {
       players.value = await playerSeasonStats(seasonId);
       teams.value = await teamResults(seasonId);
       cleanSheets.value = await playerCleanSheets(seasonId);
+      homeAwayGames.value = await playerHomeAway(seasonId);
       upcoming.value = await listUpcomingFixtures(5);
       await nextTick();
       safeBuild("leaderboard", buildLeaderboard);
-      safeBuild("matchesPlayed", buildMatchesPlayed);
+      safeBuild("homeAwayGames", buildHomeAwayGames);
       safeBuild("potm", buildPotm);
       safeBuild("cleanSheets", buildCleanSheets);
       safeBuild("homeAway", buildHomeAway);
@@ -209,7 +224,7 @@ export default {
     onMounted(load);
     onBeforeUnmount(destroyCharts);
 
-    return { players, cleanSheets, teams, upcoming, totals, loadError, load, leaderboardCanvas, matchesCanvas, potmCanvas, cleanSheetsCanvas, homeAwayCanvas, store, currentSeason, GOOD, CRITICAL, NEUTRAL };
+    return { players, cleanSheets, homeAwayGames, homeAwayGamesCanvas, teams, upcoming, totals, loadError, load, leaderboardCanvas, potmCanvas, cleanSheetsCanvas, homeAwayCanvas, store, currentSeason, GOOD, CRITICAL, NEUTRAL };
   },
   template: `
     <main class="container">
@@ -239,7 +254,8 @@ export default {
       </p>
 
       <h3>Matches played</h3>
-      <div :style="{ height: Math.max(220, players.length * 22) + 'px' }"><canvas ref="matchesCanvas"></canvas></div>
+      <div :style="{ height: Math.max(220, homeAwayGames.length * 22) + 'px' }"><canvas ref="homeAwayGamesCanvas"></canvas></div>
+      <p v-if="!homeAwayGames.length" style="opacity:0.7;">No games played yet this season.</p>
 
       <h3>Player of the Match</h3>
       <div :style="{ height: Math.max(220, players.length * 22) + 'px' }"><canvas ref="potmCanvas"></canvas></div>
