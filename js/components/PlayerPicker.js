@@ -1,18 +1,8 @@
-import { playerDisplayName } from "../lib/format.js";
+import { playerDisplayName, byAbilityThenName } from "../lib/format.js";
 
 // One row per squad player for a single fixture: just tick who's in the
 // squad for this match, plus availability / already-playing-elsewhere-today
 // hints. No starting/subs split, no positions or shirt numbers - squads only.
-
-// Highest ability first (unrated players sort last), then alphabetically by
-// displayed name - used to order the pick-team list. The number itself is
-// never shown in the UI, only used for ordering.
-function byAbilityThenName(a, b) {
-  const abilA = a.ability ?? -1;
-  const abilB = b.ability ?? -1;
-  if (abilB !== abilA) return abilB - abilA;
-  return playerDisplayName(a).toLowerCase().localeCompare(playerDisplayName(b).toLowerCase());
-}
 
 export default {
   name: "PlayerPicker",

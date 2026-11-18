@@ -18,3 +18,13 @@ export function playerDisplayName(p) {
   if (!p) return "";
   return p.display_name || [p.first_name, p.last_name].filter(Boolean).join(" ");
 }
+
+// Highest ability first (unrated players sort last), then alphabetically by
+// displayed name. The number itself is never shown in the UI, only used for
+// ordering.
+export function byAbilityThenName(a, b) {
+  const abilA = a.ability ?? -1;
+  const abilB = b.ability ?? -1;
+  if (abilB !== abilA) return abilB - abilA;
+  return playerDisplayName(a).toLowerCase().localeCompare(playerDisplayName(b).toLowerCase());
+}
