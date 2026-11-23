@@ -1,4 +1,4 @@
-import { ref, reactive, computed, onMounted, nextTick } from "vue";
+import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { listFixtures, createFixture, createFixturesBulk, updateFixture, deleteFixture, setFixtureCoaches } from "../api/fixtures.js";
 import { listCoaches } from "../api/profiles.js";
 import { store, isAdmin, currentSeason } from "../store.js";
@@ -6,18 +6,18 @@ import { parseDelimited, normalizeDate, normalizeTime, normalizeHomeAway } from 
 import { coachDisplayName } from "../lib/format.js";
 import { useLoader } from "../lib/useLoader.js";
 import { strengthLabel } from "../lib/teamStrength.js";
+import FixtureEditor from "../components/FixtureEditor.js";
 
 const BLANK = { match_date: "", kickoff: "", team_name: "", opponent: "", home_away: "home", venue: "", competition: "", format: "", status: "scheduled", our_score: null, their_score: null, coach_ids: [], team_strength: "" };
 
 export default {
   name: "FixturesView",
+  components: { FixtureEditor },
   setup() {
     const fixtures = ref([]);
     const allCoaches = ref([]);
     const showForm = ref(false);
-    const formEl = ref(null); // the top-of-page add/duplicate form, scrolled into view below
     const draft = ref({ ...BLANK });
-    const editingId = ref(null);
     const error = ref("");
 
     const { error: loadError, run: load } = useLoader(async () => {
@@ -44,27 +44,136 @@ export default {
     const pastFixtureCount = computed(() => pastGroups.value.reduce((n, [, fx]) => n + fx.length, 0));
     const displayedGroups = computed(() => showPast.value ? [...upcomingGroups.value, ...pastGroups.value] : upcomingGroups.value);
 
-    function startAdd() { draft.value = { ...BLANK }; editingId.value = null; showForm.value = true; showImport.value = false; }
+    // ---------------- Collapsible days ----------------
+    // One day open at a time (accordion). Defaults to the next upcoming day
+    // once the fixtures first load; the user's own open/close choice wins
+    // after that.
+    const openDate = ref(null);
+    let openDateTouched = false;
+    watch(upcomingGroups, (groups) => {
+      if (!openDateTouched && openDate.value === null && groups.length) openDate.value = groups[0][0];
+    }, { immediate: true });
 
-    // Editing happens inline on the fixture's own card (see template), not in
-    // the top-of-page form - so there's nothing to scroll back up for.
-    function startEdit(f) { draft.value = { ...f, coach_ids: [...(f.coach_ids || [])], team_strength: f.team_strength || "" }; editingId.value = f.id; showForm.value = false; showImport.value = false; }
-    function cancelEdit() { editingId.value = null; error.value = ""; }
-
-    // Clone a fixture as another of our teams playing the same opponent/date -
-    // the quick path for "this one fixture is actually N matches for us".
-    // Clicked from a fixture card that's often well down the page, but the
-    // form itself lives at the top - scroll to it, or opening it looks like
-    // nothing happened.
-    function duplicateAsNewTeam(f) {
-      const { id, created_at, coaches, coach_ids, ...rest } = f;
-      draft.value = { ...rest, coach_ids: [...(coach_ids || [])], team_name: "", our_score: null, their_score: null, status: "scheduled", team_strength: rest.team_strength || "" };
-      editingId.value = null;
-      showForm.value = true;
-      showImport.value = false;
-      nextTick(() => formEl.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    function isOpen(date) { return openDate.value === date; }
+    function toggleDay(date) {
+      openDateTouched = true;
+      openDate.value = openDate.value === date ? null : date;
     }
 
+    function dayLabel(date) {
+      const d = new Date(date + "T00:00:00");
+      return isNaN(d) ? date : d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    }
+    function daySummary(fx) {
+      const opponents = [...new Set(fx.map((f) => f.opponent))];
+      const times = fx.map((f) => f.kickoff).filter(Boolean).sort();
+      return opponents.join(" / ") + (times.length ? ` · ${times[0]}` : "");
+    }
+
+    function scrollToDay(date) {
+      nextTick(() => document.getElementById("fx-day-" + date)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+
+    function startAdd() { draft.value = { ...BLANK }; cancelDayEdit(); showForm.value = true; showImport.value = false; }
+
+    // ---------------- Edit a whole day ----------------
+    // The day's cards swap for compact editor rows in the same spot, with one
+    // Save for the lot - and the day is scrolled to the top so the page never
+    // ends up somewhere else after opening/saving.
+    const editingDate = ref(null);
+    const dayDate = ref("");      // the date every row in the day is saved with
+    const dayDrafts = ref([]);
+    const dayError = ref("");
+    const daySaving = ref(false);
+
+    function toDraft(f) {
+      return {
+        id: f.id, kickoff: f.kickoff || "", team_name: f.team_name || "", opponent: f.opponent || "",
+        home_away: f.home_away || "home", venue: f.venue || "", format: f.format || "", competition: f.competition || "",
+        status: f.status || "scheduled", our_score: f.our_score ?? "", their_score: f.their_score ?? "",
+        team_strength: f.team_strength || "", coach_ids: [...(f.coach_ids || [])],
+      };
+    }
+    // Compare the editable fields only, so unchanged fixtures aren't re-saved.
+    function snapshot(d) {
+      const { _orig, _open, ...fields } = d;
+      return JSON.stringify(fields);
+    }
+
+    function startDayEdit(date, fx, focusId = null, addTeam = false) {
+      showForm.value = false;
+      showImport.value = false;
+      dayError.value = "";
+      dayDate.value = date;
+      dayDrafts.value = fx.map((f) => {
+        const d = toDraft(f);
+        return { ...d, _orig: snapshot(d), _open: f.id === focusId };
+      });
+      editingDate.value = date;
+      openDate.value = date;
+      openDateTouched = true;
+      if (addTeam) addTeamToDay();
+      scrollToDay(date);
+    }
+    function cancelDayEdit() {
+      const date = editingDate.value;
+      editingDate.value = null;
+      dayDrafts.value = [];
+      dayError.value = "";
+      if (date) scrollToDay(date);
+    }
+
+    // Another of our teams playing the same opponent that day - copies the
+    // last row's opponent/venue/time so only the team label needs changing.
+    function addTeamToDay() {
+      const last = dayDrafts.value[dayDrafts.value.length - 1];
+      const base = last ? { ...last, coach_ids: [...last.coach_ids] } : { ...BLANK, team_strength: "" };
+      dayDrafts.value.push({
+        ...toDraft({ ...base, id: null }),
+        id: null, team_name: "", our_score: "", their_score: "", status: "scheduled", _orig: null, _open: false,
+      });
+    }
+    function removeDraftRow(i) { dayDrafts.value.splice(i, 1); }
+
+    async function saveDay() {
+      dayError.value = "";
+      daySaving.value = true;
+      try {
+        for (const d of dayDrafts.value) {
+          const dateChanged = dayDate.value !== editingDate.value;
+          if (d.id && !dateChanged && snapshot(d) === d._orig) continue;
+          const payload = {
+            match_date: dayDate.value,
+            season_id: store.currentSeasonId,
+            kickoff: d.kickoff === "" ? null : d.kickoff,
+            team_name: d.team_name,
+            opponent: d.opponent,
+            home_away: d.home_away,
+            venue: d.venue,
+            format: d.format,
+            competition: d.competition,
+            status: d.status,
+            our_score: d.our_score === "" || d.our_score == null ? null : Number(d.our_score),
+            their_score: d.their_score === "" || d.their_score == null ? null : Number(d.their_score),
+            team_strength: d.team_strength === "" ? null : d.team_strength,
+          };
+          const saved = d.id ? await updateFixture(d.id, payload) : await createFixture(payload);
+          await setFixtureCoaches(saved.id, d.coach_ids || []);
+        }
+        const date = dayDate.value;
+        editingDate.value = null;
+        dayDrafts.value = [];
+        await load();
+        openDate.value = date;
+        scrollToDay(date);
+      } catch (e) {
+        dayError.value = e.message;
+      } finally {
+        daySaving.value = false;
+      }
+    }
+
+    // Top-of-page "+ Add fixture" form (creates a new fixture only).
     async function save() {
       error.value = "";
       try {
@@ -77,11 +186,13 @@ export default {
           their_score: draft.value.their_score === "" ? null : draft.value.their_score,
           team_strength: draft.value.team_strength === "" ? null : draft.value.team_strength,
         };
-        const saved = editingId.value ? await updateFixture(editingId.value, payload) : await createFixture(payload);
+        const saved = await createFixture(payload);
         await setFixtureCoaches(saved.id, coach_ids || []);
         showForm.value = false;
-        editingId.value = null;
         await load();
+        openDate.value = saved.match_date;
+        openDateTouched = true;
+        scrollToDay(saved.match_date);
       } catch (e) { error.value = e.message; }
     }
 
@@ -106,7 +217,7 @@ export default {
 
     function openImport() {
       showForm.value = false;
-      editingId.value = null;
+      cancelDayEdit();
       showImport.value = true;
       // Don't prefill with the placeholder "My Club" default - that's not a
       // real name and would silently fail to match anything in the file.
@@ -243,8 +354,10 @@ export default {
     onMounted(load);
     return {
       fixtures, allCoaches, coachDisplayName, loadError, load, grouped, displayedGroups, showPast, pastGroups, pastFixtureCount,
-      showForm, formEl, draft, editingId, error, isAdmin, strengthLabel,
-      startAdd, startEdit, cancelEdit, duplicateAsNewTeam, save, remove,
+      showForm, draft, error, isAdmin, strengthLabel,
+      startAdd, save, remove,
+      isOpen, toggleDay, dayLabel, daySummary, editingDate, dayDate, dayDrafts, dayError, daySaving,
+      startDayEdit, cancelDayEdit, addTeamToDay, removeDraftRow, saveDay,
       showImport, importText, importHeaders, parsedRows, mapping, useHomeAwayColumns,
       ourNameInFile, teamCount, teamLabels, importError, importing, previewFixtures, skippedRowCount, unmatchedSideCount,
       openImport, cancelImport, onFile, parseImport, runImport,
@@ -259,48 +372,13 @@ export default {
         <button class="outline" @click="openImport" style="width:auto;">+ Import from file</button>
       </div>
 
-      <article v-if="showForm" ref="formEl">
+      <article v-if="showForm">
+        <h4 style="margin-top:0;">New fixture</h4>
         <form @submit.prevent="save">
-          <div class="form-grid">
-            <label>Date <input v-model="draft.match_date" type="date" required /></label>
-            <label>Kickoff <input v-model="draft.kickoff" type="time" /></label>
-            <label>Our team label <input v-model="draft.team_name" placeholder="e.g. Orange (optional)" /></label>
-            <label>Squad strength <small>(coach-only, never shared)</small>
-              <select v-model="draft.team_strength">
-                <option value="">Not set</option>
-                <option value="stronger">Stronger</option>
-                <option value="development">Development</option>
-                <option value="mixed">Mixed</option>
-              </select>
-            </label>
-            <label>Opponent <input v-model="draft.opponent" required /></label>
-            <label>Home/Away
-              <select v-model="draft.home_away"><option value="home">Home</option><option value="away">Away</option></select>
-            </label>
-            <label>Venue <input v-model="draft.venue" /></label>
-            <label>Format <input v-model="draft.format" placeholder="e.g. 9v9" /></label>
-            <label>Competition <input v-model="draft.competition" /></label>
-            <label>Status
-              <select v-model="draft.status">
-                <option value="scheduled">Scheduled</option>
-                <option value="played">Played</option>
-                <option value="postponed">Postponed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </label>
-            <label>Our score <input v-model="draft.our_score" type="number" min="0" /></label>
-            <label>Their score <input v-model="draft.their_score" type="number" min="0" /></label>
-          </div>
-          <fieldset>
-            <legend>Coaches</legend>
-            <label v-for="c in allCoaches" :key="c.id" style="display:flex; align-items:center; gap:0.4rem; font-weight:normal;">
-              <input type="checkbox" :value="c.id" v-model="draft.coach_ids" /> {{ coachDisplayName(c) }}
-            </label>
-            <p v-if="!allCoaches.length" style="opacity:0.7; font-size:0.85rem;">No registered coaches yet - invite them from the Supabase dashboard and they'll show up here.</p>
-          </fieldset>
+          <FixtureEditor :draft="draft" :all-coaches="allCoaches" show-date />
           <p v-if="error" style="color:#b91c1c;">{{ error }}</p>
-          <button type="submit">Save fixture</button>
-          <button type="button" class="secondary" @click="showForm = false">Cancel</button>
+          <button type="submit" style="width:auto;">Save fixture</button>
+          <button type="button" class="secondary" style="width:auto;" @click="showForm = false">Cancel</button>
         </form>
       </article>
 
@@ -382,56 +460,37 @@ export default {
         </div>
       </article>
 
-      <section v-for="[date, fx] in displayedGroups" :key="date">
-        <div style="display:flex; align-items:center; gap:0.75rem;">
-          <h4 style="margin:0;">{{ date }}</h4>
-          <router-link :to="'/team-sheet-day/' + date"><button class="outline" style="width:auto; padding:0.2rem 0.75rem;">Day sheet</button></router-link>
+      <section v-for="[date, fx] in displayedGroups" :key="date" :id="'fx-day-' + date" class="fx-day">
+        <div class="fx-day-head" role="button" tabindex="0" :aria-expanded="isOpen(date)"
+             @click="toggleDay(date)" @keydown.enter.prevent="toggleDay(date)" @keydown.space.prevent="toggleDay(date)">
+          <span class="fx-chevron">{{ isOpen(date) ? '▾' : '▸' }}</span>
+          <h4>{{ dayLabel(date) }}</h4>
+          <span class="tag">{{ fx.length }} game{{ fx.length === 1 ? '' : 's' }}</span>
+          <span class="fx-day-summary">{{ daySummary(fx) }}</span>
+          <span class="fx-day-actions" @click.stop>
+            <router-link :to="'/team-sheet-day/' + date"><button class="outline">Day sheet</button></router-link>
+            <button v-if="editingDate !== date" class="secondary" @click="startDayEdit(date, fx)">Edit day</button>
+          </span>
         </div>
-        <div class="matchday-columns">
+
+        <div v-if="isOpen(date)" class="fx-day-body">
+          <form v-if="editingDate === date" @submit.prevent="saveDay">
+            <div class="fx-edit-grid" style="margin-bottom:0.5rem;">
+              <label>Date for all games on this day <input v-model="dayDate" type="date" required /></label>
+            </div>
+            <FixtureEditor v-for="(d, i) in dayDrafts" :key="d.id || ('new' + i)"
+                           :draft="d" :all-coaches="allCoaches" :open-details="d._open"
+                           :removable="!d.id" @remove="removeDraftRow(i)" />
+            <p v-if="dayError" style="color:#b91c1c;">{{ dayError }}</p>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
+              <button type="submit" style="width:auto;" :aria-busy="daySaving" :disabled="daySaving">Save day</button>
+              <button type="button" class="outline" style="width:auto;" @click="addTeamToDay">+ Add team</button>
+              <button type="button" class="secondary" style="width:auto;" @click="cancelDayEdit">Cancel</button>
+            </div>
+          </form>
+
+          <div v-else class="matchday-columns">
           <article v-for="f in fx" :key="f.id" :class="{ pitch: f.status === 'played' }">
-            <form v-if="editingId === f.id" @submit.prevent="save">
-              <div class="form-grid">
-                <label>Date <input v-model="draft.match_date" type="date" required /></label>
-                <label>Kickoff <input v-model="draft.kickoff" type="time" /></label>
-                <label>Our team label <input v-model="draft.team_name" placeholder="e.g. Orange (optional)" /></label>
-                <label>Squad strength <small>(coach-only, never shared)</small>
-                  <select v-model="draft.team_strength">
-                    <option value="">Not set</option>
-                    <option value="stronger">Stronger</option>
-                    <option value="development">Development</option>
-                    <option value="mixed">Mixed</option>
-                  </select>
-                </label>
-                <label>Opponent <input v-model="draft.opponent" required /></label>
-                <label>Home/Away
-                  <select v-model="draft.home_away"><option value="home">Home</option><option value="away">Away</option></select>
-                </label>
-                <label>Venue <input v-model="draft.venue" /></label>
-                <label>Format <input v-model="draft.format" placeholder="e.g. 9v9" /></label>
-                <label>Competition <input v-model="draft.competition" /></label>
-                <label>Status
-                  <select v-model="draft.status">
-                    <option value="scheduled">Scheduled</option>
-                    <option value="played">Played</option>
-                    <option value="postponed">Postponed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </label>
-                <label>Our score <input v-model="draft.our_score" type="number" min="0" /></label>
-                <label>Their score <input v-model="draft.their_score" type="number" min="0" /></label>
-              </div>
-              <fieldset>
-                <legend>Coaches</legend>
-                <label v-for="c in allCoaches" :key="c.id" style="display:flex; align-items:center; gap:0.4rem; font-weight:normal;">
-                  <input type="checkbox" :value="c.id" v-model="draft.coach_ids" /> {{ coachDisplayName(c) }}
-                </label>
-                <p v-if="!allCoaches.length" style="opacity:0.7; font-size:0.85rem;">No registered coaches yet - invite them from the Supabase dashboard and they'll show up here.</p>
-              </fieldset>
-              <p v-if="error" style="color:#b91c1c;">{{ error }}</p>
-              <button type="submit" style="width:auto;">Save fixture</button>
-              <button type="button" class="secondary" style="width:auto;" @click="cancelEdit">Cancel</button>
-            </form>
-            <template v-else>
               <header>
                 <strong>{{ f.team_name || 'Team' }}</strong> vs {{ f.opponent }}
                 <span class="tag">{{ f.home_away }}</span>
@@ -446,12 +505,12 @@ export default {
                 <router-link :to="'/team-sheet/' + f.id"><button class="outline" style="width:auto;">Team sheet</button></router-link>
                 <router-link :to="'/live/' + f.id"><button class="outline" style="width:auto;">Live</button></router-link>
                 <router-link :to="'/match-stats/' + f.id"><button class="outline" style="width:auto;">Stats</button></router-link>
-                <button class="secondary" style="width:auto;" @click="startEdit(f)">Edit</button>
-                <button class="secondary outline" style="width:auto;" @click="duplicateAsNewTeam(f)">+ Add team</button>
+                <button class="secondary" style="width:auto;" @click="startDayEdit(date, fx, f.id)">Edit</button>
+                <button class="secondary outline" style="width:auto;" @click="startDayEdit(date, fx, null, true)">+ Add team</button>
                 <button v-if="isAdmin()" class="secondary outline" style="width:auto;" @click="remove(f)">Delete</button>
               </footer>
-            </template>
           </article>
+          </div>
         </div>
       </section>
       <p v-if="!fixtures.length">No fixtures yet for this season.</p>

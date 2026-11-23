@@ -132,6 +132,29 @@ body {
    so this has to target the <li> too). */
 .player-list { padding-left: 1.3rem; margin: 0.4rem 0 0; }
 .player-list li { list-style-type: disc; padding-left: 0.15rem; }
+/* ---------- Fixtures page: collapsible days + compact editor ---------- */
+.fx-day { margin-top: 0.75rem; border: 1px solid var(--line); border-radius: 0.4rem; background: #fff; }
+.fx-day-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.6rem 0.8rem; cursor: pointer; }
+.fx-day-head h4 { margin: 0; font-size: 1rem; }
+.fx-chevron { width: 1rem; opacity: 0.7; }
+.fx-day-summary { flex: 1; min-width: 8rem; font-size: 0.85rem; opacity: 0.7; }
+.fx-day-actions { display: flex; gap: 0.4rem; }
+.fx-day-actions button { width: auto; margin: 0; padding: 0.2rem 0.75rem; }
+.fx-day-body { padding: 0 0.8rem 0.8rem; }
+.fx-day-body .matchday-columns { margin-top: 0.25rem; }
+
+.fx-editor { padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
+.fx-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem 0.75rem; }
+.fx-edit-grid label { font-size: 0.8rem; margin: 0; }
+.fx-edit-grid input, .fx-edit-grid select { margin: 0.15rem 0 0; padding: 0.4rem 0.6rem; height: auto; font-size: 0.9rem; }
+.fx-wide { grid-column: span 2; }
+.fx-more { margin: 0.5rem 0 0; }
+.fx-more summary { font-size: 0.85rem; cursor: pointer; margin-bottom: 0.5rem; }
+.fx-coaches { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; align-items: center; margin-top: 0.6rem; font-size: 0.85rem; }
+.fx-coaches label { display: flex; align-items: center; gap: 0.3rem; font-weight: normal; margin: 0; }
+.fx-coaches input { margin: 0; }
+.fx-remove { width: auto; margin: 0.5rem 0 0; padding: 0.2rem 0.75rem; }
+
 /* Quiet marker for a player who's also in another team's squad that day. */
 .also-playing { font-size: 0.6em; vertical-align: super; opacity: 0.55; margin-left: 0.15rem; }
 .live-player-btn.active .num { background: #fff; color: var(--club-orange-dark); }
